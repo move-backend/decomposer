@@ -96,7 +96,7 @@ install_library() {
 
   # use the origin for master as the default origin
   default_remote="$(git config --get branch.master.remote)"
-  if git remote get-url "$default_remote" | grep -q "${url}"; then
+  if git config --get "remote${default_remote}.url" | grep -q "${url}"; then
     printf -v "${status_text_variable}" 'remote URL has changed'
     git remote set-url "$default_remote" "${url}"
   fi
