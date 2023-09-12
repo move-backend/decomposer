@@ -23,6 +23,7 @@ if [ "${COMMAND}" = 'help' ]; then
 fi
 
 CWD=$( pwd )
+DECOMPOSER_VERSION="1.0"
 DECOMPOSER_ROOT="$( dirname "$(realpath $0)" )/.."
 COMMAND_FILE="${DECOMPOSER_ROOT}/libexec/decomposer/decomposer-${COMMAND}"
 
@@ -35,6 +36,7 @@ source "${DECOMPOSER_ROOT}/share/decomposer/helpers.sh"
 
 export CWD
 export DECOMPOSER_ROOT
+export DECOMPOSER_VERSION
 export -f exit_error
 
 exec "${COMMAND_FILE}" "$@"
