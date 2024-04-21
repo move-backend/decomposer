@@ -83,7 +83,7 @@ install_library() {
 
   cd "${library_target_dir}" || return 2
 
-  local revision revision_type revision_alt_type revision_reset
+  local revision revision_type revision_alt_type revision_reset default_remote
 
   revision=$( jq -r '.revision' <<< "${object}" )
   if [ "${revision}" = "null" ]; then
@@ -94,18 +94,26 @@ install_library() {
   revision_alt_type=$( git cat-file -t "v${revision}" 2> /dev/null )
   revision_reset=
 
-  if git branch -a | grep -q "/origin/${revision}"; then
-    revision_reset="origin/${revision}"
+  # use the origin for master as the default origin
+  # TODO: determine the default remote
+  default_remote="origin"
+  if git remote get-url "$default_remote" | grep -q "${url}"; then
+    printf -v "${status_text_variable}" 'remote URL has changed'
+    git remote set-url "$default_remote" "${url}"
+  fi
+
+  if git branch -a | grep -q "/${default_remote}/${revision}"; then
+    revision_reset="${default_remote}/${revision}"
   elif [ "${revision_type}" = 'commit' ] || [ "${revision_type}" = 'tag' ]; then
     revision_reset="${revision}"
   elif [ "${revision_alt_type}" = 'commit' ] || [ "${revision_alt_type}" = 'tag' ]; then
     revision_reset="v${revision}"
   fi
 
-  if [ -z "${just_cloned}" ] && [ "${revision_reset}" = "origin/${revision}" ] || [ -z "${revision_reset}" ]; then
+  if [ -z "${just_cloned}" ] && [ "${revision_reset}" = "${default_remote}/${revision}" ] || [ -z "${revision_reset}" ]; then
     # no need to fetch changes if we just cloned the repository
     # or we can already resolve a commit or tag
-    if ! git fetch origin &> /dev/null; then
+    if ! git fetch ${default_remote} &> /dev/null; then
       printf -v "${status_text_variable}" 'fetching changes failed'
       return 1
     fi
@@ -116,8 +124,8 @@ install_library() {
     revision_alt_type=$( git cat-file -t "v${revision}" 2> /dev/null )
     revision_reset=
 
-    if git branch -a | grep -q "/origin/${revision}"; then
-      revision_reset="origin/${revision}"
+    if git branch -a | grep -q "/${default_remote}/${revision}"; then
+      revision_reset="${default_remote}/${revision}"
     elif [ "${revision_type}" = 'commit' ] || [ "${revision_type}" = 'tag' ]; then
       revision_reset="${revision}"
     elif [ "${revision_alt_type}" = 'commit' ] || [ "${revision_alt_type}" = 'tag' ]; then
