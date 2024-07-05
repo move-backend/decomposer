@@ -1,0 +1,56 @@
+name: "CI"
+on: [push, pull_request]
+
+jobs:
+  bats:
+    name: bats
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Setup bats
+        uses: mig4/setup-bats@v1
+        with:
+            bats-version: 1.9.0
+
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Configure git (user name)
+        run: git config --global user.name "Decomposer (CI)"
+
+      - name: Configure git (user email)
+        run: git config --global user.email "actions@php-decomposer.org"
+
+      - name: Configure git (default branch)
+        run: git config --global init.defaultBranch master
+
+      - name: Run bats
+        run: bats --print-output-on-failure -r tests
+
+  jsonschema:
+    name: jsonschema
+    runs-on: ubuntu-latest
+    env:
+      DECOMPOSER_TARGET_DIR: /tmp/decomposer
+    steps:
+
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install JSON schema
+        run: pip install check-jsonschema
+
+      - name: Fetch decomposer.json from Lunr
+        run: curl -o decomposer.json https://raw.githubusercontent.com/lunr-php/lunr/HEAD/decomposer.json
+
+      - name: Create target dir
+        run: mkdir -p "$DECOMPOSER_TARGET_DIR"
+
+      - name: Install libraries
+        run: bin/decomposer install
+
+      - name: Generate SBOM
+        run: bin/decomposer sbom
+
+      - name: Validate
+        run: check-jsonschema --schemafile https://raw.githubusercontent.com/spdx/spdx-spec/v2.3/schemas/spdx-schema.json decomposer.sbom.json

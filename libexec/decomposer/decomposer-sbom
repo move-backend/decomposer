@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+DECOMPOSER_TARGET_DIR=${DECOMPOSER_TARGET_DIR:-/var/www/libs/}
+
+TMP_FILE=$( mktemp )
+trap 'rm "${TMP_FILE}"' EXIT
+
+SBOM_FILE=${CWD}/decomposer.sbom.json
+NAMESPACE="$(git remote get-url origin)#$(git rev-parse HEAD)/$(basename $SBOM_FILE)"
+
+parse_arguments() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      "-f" | "--file")
+        if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
+          case "$2" in
+            /*) SBOM_FILE="$2" ;;
+            *) SBOM_FILE="${CWD}/$2" ;;
+          esac
+          shift
+        fi
+        ;;
+      *)
+        printf "Unknown option %s\n" "$1"
+        if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
+          shift
+        fi
+        ;;
+    esac
+    shift
+  done
+}
+
+validate_arguments() {
+  if ! [ -f "${CWD}/decomposer.json" ]; then
+    exit_error 'No decomposer.json found.'
+  fi
+
+  if [ -f "${SBOM_FILE}" ]; then
+    printf 'Backing up old SBOM...'
+    mv "${SBOM_FILE}" "${SBOM_FILE}.backup"
+
+    case "$?" in
+      0) printf 'done\n' ;;
+      1) printf 'failed (%s)\n' "${status_text}" ;;
+      2) printf 'skipped (%s)\n' "${status_text}" ;;
+    esac
+  fi
+
+  # Clear SBOM and test write
+  if ! printf '' 2> /dev/null > "${SBOM_FILE}"; then
+    exit_error "File '${SBOM_FILE}' is not writable."
+  fi
+}
+
+process_file() {
+  local file="$1"
+
+  printf '{' > "${TMP_FILE}"
+  map_libraries_object "${file}" process_library
+  printf '}' >> "${TMP_FILE}"
+  
+  echo '{}' | 
+    jq --argjson packages "$(sed 's/,}$/}/' "${TMP_FILE}")" \
+       --arg name $(basename "${CWD}") \
+       --arg version "${DECOMPOSER_VERSION}" \
+       --arg namespace "$NAMESPACE" \
+      --from-file "${DECOMPOSER_ROOT}/share/decomposer/sbom.jq" > "${SBOM_FILE}"
+}
+
+process_library() {
+  local name="$1"
+  local object="$2"
+
+  local status_text
+
+  printf 'Processing %s...' "${name}"
+
+  write_locked_library "${name}" "${object}" status_text
+
+  case "$?" in
+    0) printf 'done\n' ;;
+    1) printf 'failed (%s)\n' "${status_text}" ;;
+    2) printf 'skipped (%s)\n' "${status_text}" ;;
+  esac
+}
+
+write_locked_library() {
+  local name="$1"
+  local object="$2"
+  local status_text_variable="$3"
+
+  local revision version url library_target_dir
+
+  version=$( jq -r '.version' <<< "${object}" )
+  revision=$( jq -r '.revision//.version' <<< "${object}" )
+  url=$( jq -r '.url' <<< "${object}" )
+
+  library_target_dir=$( jq -r '."target-dir"' <<< "${object}" )
+  if [ "${library_target_dir}" = "null" ]; then
+    library_target_dir="${name}-${version}"
+  else
+    library_target_dir="${name}-${version}${library_target_dir}"
+  fi
+
+  cd "${DECOMPOSER_TARGET_DIR}/${library_target_dir}" || return 1
+
+  local commit
+  commit=$(git -C "${DECOMPOSER_TARGET_DIR}/${library_target_dir}" rev-parse HEAD)
+
+  printf '"%s":{"commit": "%s", "revision": "%s", "version": "%s", "url": "%s"},' "${name}" "${commit}" "${revision}" "${version}" "${url}" >> "${TMP_FILE}"
+}
+
+parse_arguments "$@"
+validate_arguments
+
+process_file "${CWD}/decomposer.json"
